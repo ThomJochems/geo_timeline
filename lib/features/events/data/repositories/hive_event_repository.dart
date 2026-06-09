@@ -71,7 +71,7 @@ class HiveEventRepository implements EventRepository {
 
   List<Event> _sortedEvents() {
     final events = _eventBox.values.map(Event.fromJson).toList()
-      ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+      ..sort((a, b) => b.startDate.compareTo(a.startDate));
 
     return List.unmodifiable(events);
   }

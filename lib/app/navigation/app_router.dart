@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../features/events/domain/models/event.dart';
+import '../../features/events/presentation/pages/create_event_page.dart';
+import '../../features/events/presentation/pages/event_detail_page.dart';
+import '../../features/events/presentation/pages/timeline_page.dart';
 import 'app_routes.dart';
 
 class AppRouter {
@@ -8,7 +12,18 @@ class AppRouter {
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     return MaterialPageRoute<void>(
       settings: settings,
-      builder: (_) => _RoutePlaceholder(routeName: settings.name),
+      builder: (_) {
+        final arguments = settings.arguments;
+
+        return switch (settings.name) {
+          AppRoutes.timeline => const TimelinePage(),
+          AppRoutes.createEvent => const CreateEventPage(),
+          AppRoutes.eventDetail => EventDetailPage(
+            event: arguments is Event ? arguments : null,
+          ),
+          _ => _RoutePlaceholder(routeName: settings.name),
+        };
+      },
     );
   }
 }
@@ -23,8 +38,8 @@ class _RoutePlaceholder extends StatelessWidget {
     final title = switch (routeName) {
       AppRoutes.timeline => 'Timeline',
       AppRoutes.map => 'Map',
-      AppRoutes.eventDetails => 'Event details',
-      AppRoutes.eventEditor => 'Event editor',
+      AppRoutes.eventDetail => 'Event details',
+      AppRoutes.createEvent => 'Create event',
       AppRoutes.settings => 'Settings',
       _ => 'Geo Timeline',
     };
