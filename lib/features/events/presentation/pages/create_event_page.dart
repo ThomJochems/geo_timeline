@@ -1,13 +1,404 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
-class CreateEventPage extends StatelessWidget {
+import '../../domain/models/event.dart';
+import '../providers/event_provider.dart';
+
+class CreateEventPage extends StatefulWidget {
   const CreateEventPage({super.key});
+
+  @override
+  State<CreateEventPage> createState() => _CreateEventPageState();
+}
+
+class _CreateEventPageState extends State<CreateEventPage> {
+  final _formKey = GlobalKey<FormState>();
+  final _titleController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  final _latitudeController = TextEditingController();
+  final _longitudeController = TextEditingController();
+  final _imagePicker = ImagePicker();
+
+  EventCategory _category = EventCategory.earthquake;
+  DateTime? _startDate;
+  DateTime? _endDate;
+  XFile? _selectedImage;
+  String? _dateError;
+  bool _isSaving = false;
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    _latitudeController.dispose();
+    _longitudeController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Create event')),
-      body: const SizedBox.expand(),
+      body: SafeArea(
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+            children: [
+              TextFormField(
+                controller: _titleController,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(
+                  labelText: 'Title',
+                  prefixIcon: Icon(Icons.title),
+                ),
+                validator: _requiredValidator,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _descriptionController,
+                minLines: 3,
+                maxLines: 5,
+                textInputAction: TextInputAction.newline,
+                decoration: const InputDecoration(
+                  labelText: 'Description',
+                  alignLabelWithHint: true,
+                  prefixIcon: Icon(Icons.notes_outlined),
+                ),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<EventCategory>(
+                initialValue: _category,
+                decoration: const InputDecoration(
+                  labelText: 'Category',
+                  prefixIcon: Icon(Icons.category_outlined),
+                ),
+                items: EventCategory.values.map((category) {
+                  return DropdownMenuItem<EventCategory>(
+                    value: category,
+                    child: Text(category.label),
+                  );
+                }).toList(),
+                onChanged: (category) {
+                  if (category == null) {
+                    return;
+                  }
+
+                  setState(() => _category = category);
+                },
+              ),
+              const SizedBox(height: 16),
+              _DatePickerField(
+                label: 'Start date',
+                value: _startDate,
+                onPressed: _pickStartDate,
+              ),
+              const SizedBox(height: 12),
+              _DatePickerField(
+                label: 'End date',
+                value: _endDate,
+                onPressed: _pickEndDate,
+              ),
+              if (_dateError case final error?) ...[
+                const SizedBox(height: 8),
+                Text(
+                  error,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _latitudeController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                        signed: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Latitude',
+                        prefixIcon: Icon(Icons.south_america_outlined),
+                      ),
+                      validator: (value) => _coordinateValidator(
+                        value,
+                        label: 'Latitude',
+                        min: -90,
+                        max: 90,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _longitudeController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                        signed: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Longitude',
+                        prefixIcon: Icon(Icons.public),
+                      ),
+                      validator: (value) => _coordinateValidator(
+                        value,
+                        label: 'Longitude',
+                        min: -180,
+                        max: 180,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _ImageSelectionField(
+                imageName: _selectedImage?.name,
+                onPressed: _pickImage,
+                onClear: _selectedImage == null
+                    ? null
+                    : () => setState(() => _selectedImage = null),
+              ),
+            ],
+          ),
+        ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _isSaving ? null : _saveEvent,
+        icon: _isSaving
+            ? const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.save_outlined),
+        label: Text(_isSaving ? 'Saving' : 'Save event'),
+      ),
     );
   }
+
+  Future<void> _pickStartDate() async {
+    final initialDate = _startDate ?? DateTime.now();
+    final pickedDate = await _showEventDatePicker(initialDate: initialDate);
+
+    if (!mounted || pickedDate == null) {
+      return;
+    }
+
+    setState(() {
+      _startDate = pickedDate;
+      if (_endDate != null && _endDate!.isBefore(pickedDate)) {
+        _endDate = pickedDate;
+      }
+      _dateError = null;
+    });
+  }
+
+  Future<void> _pickEndDate() async {
+    final initialDate = _endDate ?? _startDate ?? DateTime.now();
+    final pickedDate = await _showEventDatePicker(initialDate: initialDate);
+
+    if (!mounted || pickedDate == null) {
+      return;
+    }
+
+    setState(() {
+      _endDate = pickedDate;
+      _dateError = null;
+    });
+  }
+
+  Future<DateTime?> _showEventDatePicker({required DateTime initialDate}) {
+    return showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(1900),
+      lastDate: DateTime(2100),
+    );
+  }
+
+  Future<void> _pickImage() async {
+    final image = await _imagePicker.pickImage(source: ImageSource.gallery);
+
+    if (!mounted || image == null) {
+      return;
+    }
+
+    setState(() => _selectedImage = image);
+  }
+
+  Future<void> _saveEvent() async {
+    final dateError = _validateDates();
+
+    setState(() => _dateError = dateError);
+
+    if (!(_formKey.currentState?.validate() ?? false) || dateError != null) {
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    final now = DateTime.now();
+    final event = Event(
+      id: 'event-${now.microsecondsSinceEpoch}',
+      title: _titleController.text.trim(),
+      description: _nullableTrimmed(_descriptionController.text),
+      category: _category,
+      startDate: _startDate!,
+      endDate: _endDate!,
+      latitude: double.parse(_latitudeController.text.trim()),
+      longitude: double.parse(_longitudeController.text.trim()),
+      imagePath: _selectedImage?.path,
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    await context.read<EventProvider>().saveEvent(event);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() => _isSaving = false);
+
+    final errorMessage = context.read<EventProvider>().errorMessage;
+    if (errorMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage)),
+      );
+      return;
+    }
+
+    Navigator.of(context).pop(event);
+  }
+
+  String? _validateDates() {
+    if (_startDate == null || _endDate == null) {
+      return 'Select both start and end dates.';
+    }
+
+    if (_endDate!.isBefore(_startDate!)) {
+      return 'End date must be on or after the start date.';
+    }
+
+    return null;
+  }
+}
+
+class _DatePickerField extends StatelessWidget {
+  const _DatePickerField({
+    required this.label,
+    required this.value,
+    required this.onPressed,
+  });
+
+  final String label;
+  final DateTime? value;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final displayValue = value == null
+        ? 'Select date'
+        : DateFormat.yMMMd().format(value!);
+
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: const Icon(Icons.calendar_month_outlined),
+      label: Row(
+        children: [
+          Expanded(child: Text(label)),
+          Text(displayValue),
+        ],
+      ),
+      style: OutlinedButton.styleFrom(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+      ),
+    );
+  }
+}
+
+class _ImageSelectionField extends StatelessWidget {
+  const _ImageSelectionField({
+    required this.imageName,
+    required this.onPressed,
+    required this.onClear,
+  });
+
+  final String? imageName;
+  final VoidCallback onPressed;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return InputDecorator(
+      decoration: const InputDecoration(
+        labelText: 'Image',
+        prefixIcon: Icon(Icons.image_outlined),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              imageName ?? 'No image selected',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (onClear != null)
+            IconButton(
+              tooltip: 'Remove image',
+              onPressed: onClear,
+              icon: const Icon(Icons.close),
+            ),
+          TextButton.icon(
+            onPressed: onPressed,
+            icon: const Icon(Icons.upload_file),
+            label: const Text('Select'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String? _requiredValidator(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return 'Required';
+  }
+
+  return null;
+}
+
+String? _coordinateValidator(
+  String? value, {
+  required String label,
+  required double min,
+  required double max,
+}) {
+  final requiredError = _requiredValidator(value);
+  if (requiredError != null) {
+    return requiredError;
+  }
+
+  final coordinate = double.tryParse(value!.trim());
+  if (coordinate == null) {
+    return 'Enter a number';
+  }
+
+  if (coordinate < min || coordinate > max) {
+    return '$label must be between $min and $max';
+  }
+
+  return null;
+}
+
+String? _nullableTrimmed(String value) {
+  final trimmedValue = value.trim();
+
+  if (trimmedValue.isEmpty) {
+    return null;
+  }
+
+  return trimmedValue;
 }
