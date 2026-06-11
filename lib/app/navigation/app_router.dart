@@ -4,6 +4,7 @@ import '../../features/events/domain/models/event.dart';
 import '../../features/events/presentation/pages/create_event_page.dart';
 import '../../features/events/presentation/pages/event_detail_page.dart';
 import '../../features/events/presentation/pages/timeline_page.dart';
+import '../../features/map/presentation/screens/map_page.dart';
 import 'app_routes.dart';
 
 class AppRouter {
@@ -17,6 +18,7 @@ class AppRouter {
 
         return switch (settings.name) {
           AppRoutes.timeline => const TimelinePage(),
+          AppRoutes.map => const MapPage(),
           AppRoutes.createEvent => const CreateEventPage(),
           AppRoutes.eventDetail => EventDetailPage(
             event: arguments is Event ? arguments : null,
