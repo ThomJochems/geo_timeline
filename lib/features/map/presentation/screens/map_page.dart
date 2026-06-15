@@ -14,7 +14,14 @@ import '../../../events/presentation/widgets/concept_ui.dart';
 const _clockMarkerSize = 112.0;
 
 class MapPage extends StatefulWidget {
-  const MapPage({super.key});
+  const MapPage({
+    super.key,
+    this.visibleEventIds,
+    this.focusEventId,
+  });
+
+  final Set<String>? visibleEventIds;
+  final String? focusEventId;
 
   @override
   State<MapPage> createState() => _MapPageState();
@@ -26,6 +33,7 @@ class _MapPageState extends State<MapPage> {
   MapCamera? _camera;
   MapCamera? _pendingCamera;
   bool _cameraUpdateScheduled = false;
+  bool _hasFocusedEvent = false;
   EventCategory? _categoryFilter;
 
   @override
@@ -39,12 +47,18 @@ class _MapPageState extends State<MapPage> {
     final savedEvents = context.watch<EventProvider>().events;
     final events = [...MockEvents.timeline, ...savedEvents]
       ..sort((a, b) => a.startDate.compareTo(b.startDate));
-    final visibleEvents = _categoryFilter == null
+    final routeEvents = widget.visibleEventIds == null
         ? events
         : events
+              .where((event) => widget.visibleEventIds!.contains(event.id))
+              .toList(growable: false);
+    final visibleEvents = _categoryFilter == null
+        ? routeEvents
+        : routeEvents
               .where((event) => event.category == _categoryFilter)
               .toList(growable: false);
     final clusters = _clusterEvents(visibleEvents, _camera);
+    _focusRequestedEvent(events);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -153,6 +167,39 @@ class _MapPageState extends State<MapPage> {
     } on StateError {
       WidgetsBinding.instance.addPostFrameCallback((_) => _syncCamera());
     }
+  }
+
+  void _focusRequestedEvent(List<Event> events) {
+    if (_hasFocusedEvent || widget.focusEventId == null) {
+      return;
+    }
+
+    final matchingEvents = events.where(
+      (event) => event.id == widget.focusEventId,
+    );
+
+    if (matchingEvents.isEmpty) {
+      _hasFocusedEvent = true;
+      return;
+    }
+
+    _hasFocusedEvent = true;
+    final event = matchingEvents.first;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      try {
+        _mapController.move(
+          LatLng(event.latitude, event.longitude),
+          math.max(_mapController.camera.zoom, 7),
+        );
+      } on StateError {
+        _hasFocusedEvent = false;
+      }
+    });
   }
 
   void _setCamera(MapCamera camera) {

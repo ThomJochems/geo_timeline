@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:io';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -6,13 +7,16 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../app/navigation/app_routes.dart';
+import '../../../../app/navigation/navigation_args.dart';
 import '../../data/mock/mock_events.dart';
 import '../../domain/models/event.dart';
 import '../providers/event_provider.dart';
 import '../widgets/concept_ui.dart';
 
 class TimelinePage extends StatefulWidget {
-  const TimelinePage({super.key});
+  const TimelinePage({super.key, this.focusEventId});
+
+  final String? focusEventId;
 
   @override
   State<TimelinePage> createState() => _TimelinePageState();
@@ -74,6 +78,11 @@ class _TimelinePageState extends State<TimelinePage> {
             );
             _positionInitialView(range, pixelsPerHour, constraints.maxWidth);
             final offscreenCounts = _offscreenEventCounts(
+              cardLayouts.layouts,
+              _horizontalOffset,
+              constraints.maxWidth,
+            );
+            final visibleEventIds = _visibleTimelineEventIds(
               cardLayouts.layouts,
               _horizontalOffset,
               constraints.maxWidth,
@@ -153,8 +162,12 @@ class _TimelinePageState extends State<TimelinePage> {
                   top: 6,
                   left: 170,
                   child: ConceptGlobeButton(
-                    onPressed: () =>
-                        Navigator.of(context).pushNamed(AppRoutes.map),
+                    onPressed: () {
+                      Navigator.of(context).pushNamed(
+                        AppRoutes.map,
+                        arguments: MapPageArgs(visibleEventIds: visibleEventIds),
+                      );
+                    },
                   ),
                 ),
                 Positioned(
@@ -372,7 +385,12 @@ class _TimelinePageState extends State<TimelinePage> {
       }
 
       final firstEventOffset = range.firstEventHours * pixelsPerHour;
-      final nextOffset = firstEventOffset - viewportWidth * 0.18;
+      final focusEventOffset =
+          widget.focusEventId == null
+              ? firstEventOffset
+              : range.hoursFromStartByEventId(widget.focusEventId!) *
+                    pixelsPerHour;
+      final nextOffset = focusEventOffset - viewportWidth * 0.18;
 
       _horizontalController.jumpTo(
         nextOffset
@@ -403,6 +421,20 @@ class _TimelinePageState extends State<TimelinePage> {
     }
 
     return (left: left, right: right);
+  }
+
+  Set<String> _visibleTimelineEventIds(
+    List<_TimelineCardLayout> layouts,
+    double viewportLeft,
+    double viewportWidth,
+  ) {
+    final viewportRight = viewportLeft + viewportWidth;
+
+    return {
+      for (final layout in layouts)
+        if (layout.left <= viewportRight && layout.right >= viewportLeft)
+          layout.event.id,
+    };
   }
 
   Future<void> _openFilterSheet() async {
@@ -461,6 +493,7 @@ class _ConceptTimelineCard extends StatelessWidget {
     final backgroundColor = conceptEventColor(event.category);
     final textColor = conceptEventTextColor(event.category);
     final isCompact = width < 460;
+    final hasImage = event.imagePath != null && event.imagePath!.isNotEmpty;
 
     return SizedBox(
       width: width,
@@ -508,15 +541,18 @@ class _ConceptTimelineCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 18),
-                ClipRect(
-                  child: Image.asset(
-                    conceptEventAsset(event.category),
-                    width: isCompact ? 140 : 190,
-                    height: isCompact ? 86 : 112,
-                    fit: BoxFit.cover,
+                if (hasImage) ...[
+                  const SizedBox(width: 18),
+                  ClipRect(
+                    child: Image.file(
+                      File(event.imagePath!),
+                      width: isCompact ? 140 : 190,
+                      height: isCompact ? 86 : 112,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -785,6 +821,7 @@ class _TimelineRange {
     required this.start,
     required this.end,
     required this.firstEventStart,
+    required this.eventStartsById,
   });
 
   factory _TimelineRange.fromEvents(List<Event> events) {
@@ -794,6 +831,7 @@ class _TimelineRange {
         start: now.subtract(const Duration(days: 30)),
         end: now.add(const Duration(days: 30)),
         firstEventStart: now,
+        eventStartsById: const {},
       );
     }
 
@@ -808,16 +846,24 @@ class _TimelineRange {
       start: first.subtract(const Duration(days: 30)),
       end: last.add(const Duration(days: 30)),
       firstEventStart: first,
+      eventStartsById: {
+        for (final event in events) event.id: event.startDate,
+      },
     );
   }
 
   final DateTime start;
   final DateTime end;
   final DateTime firstEventStart;
+  final Map<String, DateTime> eventStartsById;
 
   double get totalHours => math.max(1.0, end.difference(start).inMinutes / 60);
 
   double get firstEventHours => hoursFromStart(firstEventStart);
+
+  double hoursFromStartByEventId(String eventId) {
+    return hoursFromStart(eventStartsById[eventId] ?? firstEventStart);
+  }
 
   double hoursFromStart(DateTime date) {
     return date.difference(start).inMinutes / 60;

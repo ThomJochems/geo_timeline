@@ -6,6 +6,7 @@ import '../../features/events/presentation/pages/event_detail_page.dart';
 import '../../features/events/presentation/pages/timeline_page.dart';
 import '../../features/map/presentation/screens/map_page.dart';
 import 'app_routes.dart';
+import 'navigation_args.dart';
 
 class AppRouter {
   const AppRouter._();
@@ -17,8 +18,19 @@ class AppRouter {
         final arguments = settings.arguments;
 
         return switch (settings.name) {
-          AppRoutes.timeline => const TimelinePage(),
-          AppRoutes.map => const MapPage(),
+          AppRoutes.timeline => TimelinePage(
+            focusEventId: arguments is TimelinePageArgs
+                ? arguments.focusEventId
+                : null,
+          ),
+          AppRoutes.map => MapPage(
+            visibleEventIds: arguments is MapPageArgs
+                ? arguments.visibleEventIds
+                : null,
+            focusEventId: arguments is MapPageArgs
+                ? arguments.focusEventId
+                : null,
+          ),
           AppRoutes.createEvent => const CreateEventPage(),
           AppRoutes.eventDetail => EventDetailPage(
             event: arguments is Event ? arguments : null,

@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../../../app/navigation/app_routes.dart';
+import '../../../../app/navigation/navigation_args.dart';
 import '../../domain/models/event.dart';
 
 class EventDetailPage extends StatelessWidget {
@@ -78,14 +80,52 @@ class EventDetailPage extends StatelessWidget {
                   title: 'Location',
                   child: Text(
                     event!.locationName ??
-                        '${event!.latitude.toStringAsFixed(3)}, ${event!.longitude.toStringAsFixed(3)}',
+                      '${event!.latitude.toStringAsFixed(3)}, ${event!.longitude.toStringAsFixed(3)}',
                   ),
                 ),
+                const SizedBox(height: 16),
+                _EventNavigationActions(event: event!),
               ]),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _EventNavigationActions extends StatelessWidget {
+  const _EventNavigationActions({required this.event});
+
+  final Event event;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        FilledButton.icon(
+          onPressed: () {
+            Navigator.of(context).pushNamed(
+              AppRoutes.map,
+              arguments: MapPageArgs(focusEventId: event.id),
+            );
+          },
+          icon: const Icon(Icons.map_outlined),
+          label: const Text('Show on map'),
+        ),
+        OutlinedButton.icon(
+          onPressed: () {
+            Navigator.of(context).pushNamed(
+              AppRoutes.timeline,
+              arguments: TimelinePageArgs(focusEventId: event.id),
+            );
+          },
+          icon: const Icon(Icons.timeline_outlined),
+          label: const Text('Show on timeline'),
+        ),
+      ],
     );
   }
 }
