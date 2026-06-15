@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../domain/models/event.dart';
 import '../providers/event_provider.dart';
+import '../widgets/concept_ui.dart';
 
 class CreateEventPage extends StatefulWidget {
   const CreateEventPage({super.key});
@@ -40,7 +41,18 @@ class _CreateEventPageState extends State<CreateEventPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Create event')),
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        leading: IconButton(
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).maybePop(),
+          icon: const Icon(Icons.arrow_back, color: ConceptColors.blue),
+        ),
+        title: const Text('Create event'),
+        centerTitle: true,
+      ),
       body: SafeArea(
         child: Form(
           key: _formKey,
@@ -166,6 +178,8 @@ class _CreateEventPageState extends State<CreateEventPage> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isSaving ? null : _saveEvent,
+        backgroundColor: ConceptColors.black,
+        foregroundColor: Colors.white,
         icon: _isSaving
             ? const SizedBox.square(
                 dimension: 18,
