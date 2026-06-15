@@ -81,7 +81,9 @@ class Event {
       endDate: endDate ?? this.endDate,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
-      locationName: clearLocationName ? null : locationName ?? this.locationName,
+      locationName: clearLocationName
+          ? null
+          : locationName ?? this.locationName,
       imagePath: clearImagePath ? null : imagePath ?? this.imagePath,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

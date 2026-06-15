@@ -1,11 +1,17 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:provider/provider.dart';
 
 import '../../../../app/navigation/app_routes.dart';
 import '../../../events/data/mock/mock_events.dart';
 import '../../../events/domain/models/event.dart';
+import '../../../events/presentation/providers/event_provider.dart';
 import '../../../events/presentation/widgets/concept_ui.dart';
+
+const _clockMarkerSize = 112.0;
 
 class MapPage extends StatefulWidget {
   const MapPage({super.key});
@@ -15,12 +21,30 @@ class MapPage extends StatefulWidget {
 }
 
 class _MapPageState extends State<MapPage> {
+  final _mapController = MapController();
+
+  MapCamera? _camera;
+  MapCamera? _pendingCamera;
+  bool _cameraUpdateScheduled = false;
   EventCategory? _categoryFilter;
-  bool _isHoveringCluster = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncCamera());
+  }
 
   @override
   Widget build(BuildContext context) {
-    final events = MockEvents.timeline;
+    final savedEvents = context.watch<EventProvider>().events;
+    final events = [...MockEvents.timeline, ...savedEvents]
+      ..sort((a, b) => a.startDate.compareTo(b.startDate));
+    final visibleEvents = _categoryFilter == null
+        ? events
+        : events
+              .where((event) => event.category == _categoryFilter)
+              .toList(growable: false);
+    final clusters = _clusterEvents(visibleEvents, _camera);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -28,7 +52,43 @@ class _MapPageState extends State<MapPage> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Image.asset(ConceptAssets.map, fit: BoxFit.cover),
+            FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: const LatLng(15, 0),
+                initialZoom: 2,
+                minZoom: 1,
+                maxZoom: 18,
+                interactionOptions: const InteractionOptions(
+                  flags: InteractiveFlag.all,
+                ),
+                onPositionChanged: (camera, _) => _setCamera(camera),
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate:
+                      'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                  subdomains: const ['a', 'b', 'c', 'd'],
+                  userAgentPackageName: 'com.example.geo_timeline',
+                ),
+                MarkerLayer(
+                  markers: [
+                    for (final cluster in clusters)
+                      Marker(
+                        point: cluster.center,
+                        width: cluster.events.length > 1 ? 360 : 128,
+                        height: cluster.events.length > 1 ? 360 : 128,
+                        child: _ClusterMapMarker(
+                          cluster: cluster,
+                          onEventTap: (event) {
+                            _openEventDetail(event);
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
             Positioned(
               top: 18,
               left: 20,
@@ -41,69 +101,32 @@ class _MapPageState extends State<MapPage> {
               top: 14,
               right: 24,
               child: ConceptButton(
-                label: 'Create\nevent',
+                label: 'Create event',
                 onPressed: () {
                   Navigator.of(context).pushNamed(AppRoutes.createEvent);
                 },
               ),
             ),
             Positioned(
-              top: 78,
-              right: 140,
-              child: IconButton(
-                tooltip: 'Back',
-                onPressed: () => Navigator.of(context).maybePop(),
-                iconSize: 64,
-                color: ConceptColors.blue,
-                icon: const Icon(Icons.arrow_back),
+              left: 20,
+              bottom: 20,
+              child: _MapZoomControls(
+                onZoomIn: () => _changeZoom(1),
+                onZoomOut: () => _changeZoom(-1),
               ),
             ),
-            Align(
-              alignment: const Alignment(-0.62, -0.25),
-              child: _isVisible(events[1])
-                  ? _MapClockMarker(
-                      event: events[1],
-                      wedgeColor: conceptEventColor(events[1].category),
-                    )
-                  : const SizedBox.shrink(),
-            ),
-            Align(
-              alignment: const Alignment(-0.12, -0.42),
-              child: _isVisible(events[2])
-                  ? _MapClockMarker(
-                      event: events[2],
-                      wedgeColor: conceptEventColor(events[2].category),
-                    )
-                  : const SizedBox.shrink(),
-            ),
-            Align(
-              alignment: const Alignment(0.58, 0.10),
-              child: _isVisible(events.first)
-                  ? MouseRegion(
-                      onEnter: (_) => setState(() => _isHoveringCluster = true),
-                      onExit: (_) => setState(() => _isHoveringCluster = false),
-                      child: _HoverCluster(
-                        events: events,
-                        expanded: _isHoveringCluster,
-                        isVisible: _isVisible,
-                      ),
-                    )
-                  : const SizedBox.shrink(),
-            ),
             Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Center(
-                child: Container(
-                  width: 145,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: ConceptColors.blue,
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.black, width: 1.5),
-                  ),
+              top: 82,
+              right: 140,
+              child: IconButton.filled(
+                tooltip: 'Back',
+                onPressed: () => Navigator.of(context).maybePop(),
+                iconSize: 40,
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white.withValues(alpha: 0.88),
+                  foregroundColor: ConceptColors.blue,
                 ),
+                icon: const Icon(Icons.arrow_back),
               ),
             ),
           ],
@@ -112,8 +135,54 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
-  bool _isVisible(Event event) {
-    return _categoryFilter == null || event.category == _categoryFilter;
+  void _changeZoom(double delta) {
+    final camera = _mapController.camera;
+    _mapController.move(
+      camera.center,
+      (camera.zoom + delta).clamp(1, 18).toDouble(),
+    );
+  }
+
+  void _syncCamera() {
+    if (!mounted) {
+      return;
+    }
+
+    try {
+      _setCamera(_mapController.camera);
+    } on StateError {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _syncCamera());
+    }
+  }
+
+  void _setCamera(MapCamera camera) {
+    if (!mounted) {
+      return;
+    }
+
+    _pendingCamera = camera;
+
+    if (_cameraUpdateScheduled) {
+      return;
+    }
+
+    _cameraUpdateScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _cameraUpdateScheduled = false;
+
+      final nextCamera = _pendingCamera;
+      _pendingCamera = null;
+
+      if (!mounted || nextCamera == null || _camera == nextCamera) {
+        return;
+      }
+
+      setState(() => _camera = nextCamera);
+    });
+  }
+
+  void _openEventDetail(Event event) {
+    Navigator.of(context).pushNamed(AppRoutes.eventDetail, arguments: event);
   }
 
   Future<void> _openFilterSheet() async {
@@ -154,92 +223,401 @@ class _MapPageState extends State<MapPage> {
   }
 }
 
-class _HoverCluster extends StatelessWidget {
-  const _HoverCluster({
-    required this.events,
-    required this.expanded,
-    required this.isVisible,
-  });
+class _ClusterMapMarker extends StatefulWidget {
+  const _ClusterMapMarker({required this.cluster, required this.onEventTap});
 
-  final List<Event> events;
-  final bool expanded;
-  final bool Function(Event event) isVisible;
+  final _EventCluster cluster;
+  final ValueChanged<Event> onEventTap;
+
+  @override
+  State<_ClusterMapMarker> createState() => _ClusterMapMarkerState();
+}
+
+class _ClusterMapMarkerState extends State<_ClusterMapMarker> {
+  bool _isExpanded = false;
 
   @override
   Widget build(BuildContext context) {
-    if (!expanded) {
-      return _MapClockMarker(
-        event: events.first,
-        wedgeColor: conceptEventColor(events.first.category),
-        showCount: true,
+    final events = widget.cluster.events;
+
+    if (events.length == 1) {
+      return Center(
+        child: _EventDurationClock(
+          event: events.first,
+          size: 112,
+          onTap: () => widget.onEventTap(events.first),
+        ),
       );
     }
 
-    return SizedBox(
-      width: 420,
-      height: 300,
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isExpanded = true),
+      onExit: (_) => setState(() => _isExpanded = false),
+      child: GestureDetector(
+        onTap: () => setState(() => _isExpanded = !_isExpanded),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          child: _isExpanded
+              ? _ExpandedCluster(
+                  events: events,
+                  onEventTap: widget.onEventTap,
+                )
+              : _CollapsedCluster(
+                  event: events.first,
+                  count: events.length,
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CollapsedCluster extends StatelessWidget {
+  const _CollapsedCluster({
+    required this.event,
+    required this.count,
+  });
+
+  final Event event;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Tooltip(
+        message: '$count overlapping events',
+        child: SizedBox(
+          width: 128,
+          height: 142,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Positioned(top: 0, child: _ClusterCountBadge(count: count)),
+              Positioned(
+                bottom: 0,
+                child: _EventDurationClock(event: event, size: 112),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ExpandedCluster extends StatelessWidget {
+  const _ExpandedCluster({
+    required this.events,
+    required this.onEventTap,
+  });
+
+  final List<Event> events;
+  final ValueChanged<Event> onEventTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const clusterSize = 360.0;
+    const center = Offset(clusterSize / 2, clusterSize / 2);
+    const orbitRadius = 122.0;
+    const clockSize = 92.0;
+
+    return SizedBox.square(
+      dimension: clusterSize,
       child: Stack(
         children: [
-          const Positioned(
-            top: 0,
-            left: 110,
-            child: Text(
-              'When hovering:',
-              style: TextStyle(fontSize: 24, color: Colors.black),
+          Positioned.fill(
+            child: CustomPaint(
+              painter: _ClusterConnectorPainter(
+                count: events.length,
+                radius: orbitRadius,
+                clockSize: clockSize,
+              ),
             ),
           ),
-          Positioned(
-            left: 24,
-            top: 80,
-            child: isVisible(events[1])
-                ? _MapClockMarker(
-                    event: events[1],
-                    wedgeColor: conceptEventColor(events[1].category),
-                  )
-                : const SizedBox.shrink(),
-          ),
-          Positioned(
-            left: 178,
-            top: 48,
-            child: _MapClockMarker(
-              event: events.first,
-              wedgeColor: conceptEventColor(events.first.category),
-              showCount: true,
+          Center(
+            child: Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFF7FAF8), Color(0xFFDCE9E3)],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+                border: Border.all(color: Colors.white, width: 5),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black26, blurRadius: 7),
+                ],
+              ),
             ),
           ),
-          Positioned(
-            left: 210,
-            top: 200,
-            child: isVisible(events[3])
-                ? _MapClockMarker(
-                    event: events[3],
-                    wedgeColor: conceptEventColor(events[3].category),
-                  )
-                : const SizedBox.shrink(),
-          ),
-          Positioned(
-            left: 298,
-            top: 150,
-            child: isVisible(events[2])
-                ? _MapClockMarker(
-                    event: events[2],
-                    wedgeColor: conceptEventColor(events[2].category),
-                  )
-                : const SizedBox.shrink(),
-          ),
-          const Positioned(
-            left: 180,
-            top: 150,
-            child: Icon(Icons.circle, size: 26, color: ConceptColors.blue),
-          ),
-          const Positioned(
-            left: 226,
-            top: 148,
-            child: Icon(
-              Icons.arrow_right_alt,
-              size: 54,
-              color: ConceptColors.blue,
+          for (var index = 0; index < events.length; index++)
+            Positioned(
+              left:
+                  center.dx +
+                  math.cos(_clusterAngle(index, events.length)) * orbitRadius -
+                  clockSize / 2,
+              top:
+                  center.dy +
+                  math.sin(_clusterAngle(index, events.length)) * orbitRadius -
+                  clockSize / 2,
+              child: _EventDurationClock(
+                event: events[index],
+                size: clockSize,
+                onTap: () => onEventTap(events[index]),
+              ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EventDurationClock extends StatelessWidget {
+  const _EventDurationClock({
+    required this.event,
+    required this.size,
+    this.onTap,
+  });
+
+  final Event event;
+  final double size;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final labelScale = size / 112;
+    final color = conceptEventColor(event.category);
+
+    return Tooltip(
+      message:
+          '${event.title}\n${event.category.label}\n${_formatDuration(event)}',
+      child: GestureDetector(
+        onTap: onTap,
+        child: SizedBox.square(
+          dimension: size,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              CustomPaint(
+                size: Size.square(size),
+                painter: _DurationDialPainter(event: event, color: color),
+              ),
+              Positioned(
+                top: 8 * labelScale,
+                left: 51 * labelScale,
+                child: _DialLabel('0', scale: labelScale),
+              ),
+              Positioned(
+                right: 15 * labelScale,
+                top: 49 * labelScale,
+                child: _DialLabel('6', scale: labelScale),
+              ),
+              Positioned(
+                bottom: 12 * labelScale,
+                left: 47 * labelScale,
+                child: _DialLabel('12', scale: labelScale),
+              ),
+              Positioned(
+                left: 13 * labelScale,
+                top: 49 * labelScale,
+                child: _DialLabel('18', scale: labelScale),
+              ),
+              if (event.endDate.difference(event.startDate).inHours >= 9)
+                Positioned(
+                  right: -2 * labelScale,
+                  top: 6 * labelScale,
+                  child: Text(
+                    '9+',
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontSize: 17 * labelScale,
+                      fontWeight: FontWeight.w600,
+                      shadows: const [
+                        Shadow(color: Colors.white, blurRadius: 4),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DialLabel extends StatelessWidget {
+  const _DialLabel(this.text, {this.scale = 1});
+
+  final String text;
+  final double scale;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: TextStyle(
+        color: Colors.black,
+        fontSize: 18 * scale,
+        fontWeight: FontWeight.w500,
+        shadows: const [Shadow(color: Colors.white, blurRadius: 4)],
+      ),
+    );
+  }
+}
+
+class _ClusterCountBadge extends StatelessWidget {
+  const _ClusterCountBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white, width: 2),
+      ),
+      child: Text(
+        '$count',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _ClusterConnectorPainter extends CustomPainter {
+  const _ClusterConnectorPainter({
+    required this.count,
+    required this.radius,
+    required this.clockSize,
+  });
+
+  final int count;
+  final double radius;
+  final double clockSize;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final paint = Paint()
+      ..color = ConceptColors.blue.withValues(alpha: 0.55)
+      ..strokeWidth = 2;
+
+    for (var index = 0; index < count; index++) {
+      final angle = _clusterAngle(index, count);
+      final end = Offset(
+        center.dx + math.cos(angle) * (radius - clockSize / 2 + 8),
+        center.dy + math.sin(angle) * (radius - clockSize / 2 + 8),
+      );
+      canvas.drawLine(center, end, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ClusterConnectorPainter oldDelegate) {
+    return oldDelegate.count != count ||
+        oldDelegate.radius != radius ||
+        oldDelegate.clockSize != clockSize;
+  }
+}
+
+class _DurationDialPainter extends CustomPainter {
+  const _DurationDialPainter({required this.event, required this.color});
+
+  final Event event;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.shortestSide / 2 - 3;
+    final outlinePaint = Paint()
+      ..color = Colors.black
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    final fillPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.58)
+      ..style = PaintingStyle.fill;
+    final wedgePaint = Paint()
+      ..color = color.withValues(alpha: 0.92)
+      ..style = PaintingStyle.fill;
+
+    canvas.drawCircle(center, radius, fillPaint);
+
+    final startHour = event.startDate.hour + event.startDate.minute / 60;
+    final durationHours =
+        event.endDate.difference(event.startDate).inMinutes / 60;
+    final sweepHours = durationHours.clamp(0.25, 24).toDouble();
+    final startAngle = -math.pi / 2 + startHour / 24 * math.pi * 2;
+    final sweepAngle = sweepHours / 24 * math.pi * 2;
+
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      startAngle,
+      sweepAngle,
+      true,
+      wedgePaint,
+    );
+
+    canvas.drawCircle(center, radius, outlinePaint);
+
+    for (final hour in const [0, 6, 12, 18]) {
+      final angle = -math.pi / 2 + hour / 24 * math.pi * 2;
+      final outer = Offset(
+        center.dx + math.cos(angle) * radius,
+        center.dy + math.sin(angle) * radius,
+      );
+      final inner = Offset(
+        center.dx + math.cos(angle) * (radius - 12),
+        center.dy + math.sin(angle) * (radius - 12),
+      );
+
+      canvas.drawLine(inner, outer, outlinePaint);
+    }
+
+    canvas.drawCircle(center, 3.5, Paint()..color = Colors.black);
+  }
+
+  @override
+  bool shouldRepaint(covariant _DurationDialPainter oldDelegate) {
+    return oldDelegate.event != event || oldDelegate.color != color;
+  }
+}
+
+class _MapZoomControls extends StatelessWidget {
+  const _MapZoomControls({required this.onZoomIn, required this.onZoomOut});
+
+  final VoidCallback onZoomIn;
+  final VoidCallback onZoomOut;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8)],
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'Zoom out',
+            onPressed: onZoomOut,
+            icon: const Icon(Icons.remove),
+          ),
+          IconButton(
+            tooltip: 'Zoom in',
+            onPressed: onZoomIn,
+            icon: const Icon(Icons.add),
           ),
         ],
       ),
@@ -247,91 +625,106 @@ class _HoverCluster extends StatelessWidget {
   }
 }
 
-class _MapClockMarker extends StatelessWidget {
-  const _MapClockMarker({
-    required this.event,
-    required this.wedgeColor,
-    this.showCount = false,
-  });
+String _formatDuration(Event event) {
+  final minutes = event.endDate.difference(event.startDate).inMinutes;
+  final hours = minutes ~/ 60;
+  final remainingMinutes = minutes % 60;
 
-  final Event event;
-  final Color wedgeColor;
-  final bool showCount;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        Navigator.of(context).pushNamed(AppRoutes.eventDetail, arguments: event);
-      },
-      child: SizedBox(
-        width: 126,
-        height: 126,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            CustomPaint(
-              size: const Size.square(126),
-              painter: _ClockMarkerPainter(color: wedgeColor),
-            ),
-            const Positioned(top: 8, left: 60, child: Text('0')),
-            const Positioned(right: 18, top: 56, child: Text('6')),
-            const Positioned(bottom: 12, left: 58, child: Text('12')),
-            const Positioned(left: 14, top: 56, child: Text('18')),
-            if (showCount)
-              const Positioned(
-                right: -18,
-                top: 8,
-                child: Text('9+', style: TextStyle(fontSize: 20)),
-              ),
-          ],
-        ),
-      ),
-    );
+  if (hours == 0) {
+    return '$remainingMinutes min';
   }
+
+  if (remainingMinutes == 0) {
+    return '$hours h';
+  }
+
+  return '$hours h $remainingMinutes min';
 }
 
-class _ClockMarkerPainter extends CustomPainter {
-  const _ClockMarkerPainter({required this.color});
+List<_EventCluster> _clusterEvents(List<Event> events, MapCamera? camera) {
+  if (camera == null ||
+      camera.nonRotatedSize == MapCamera.kImpossibleSize ||
+      camera.nonRotatedSize.isEmpty) {
+    return [
+      for (final event in events) _EventCluster(events: [event]),
+    ];
+  }
 
-  final Color color;
+  final parentIndexes = List.generate(events.length, (index) => index);
+  final screenOffsets = [
+    for (final event in events)
+      camera.latLngToScreenOffset(LatLng(event.latitude, event.longitude)),
+  ];
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 1;
-    final outlinePaint = Paint()
-      ..color = Colors.black
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    final wedgePaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
+  int findRoot(int index) {
+    var root = index;
+    while (parentIndexes[root] != root) {
+      root = parentIndexes[root];
+    }
 
-    canvas.drawCircle(center, radius, outlinePaint);
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius - 1),
-      -2.75,
-      1.05,
-      true,
-      wedgePaint,
-    );
+    while (parentIndexes[index] != index) {
+      final next = parentIndexes[index];
+      parentIndexes[index] = root;
+      index = next;
+    }
 
-    for (final angle in const [0.0, 1.5708, 3.1416, 4.7124]) {
-      final outer = Offset(
-        center.dx + math.cos(angle) * radius,
-        center.dy + math.sin(angle) * radius,
-      );
-      final inner = Offset(
-        center.dx + math.cos(angle) * (radius - 14),
-        center.dy + math.sin(angle) * (radius - 14),
-      );
-      canvas.drawLine(inner, outer, outlinePaint);
+    return root;
+  }
+
+  void join(int firstIndex, int secondIndex) {
+    final firstRoot = findRoot(firstIndex);
+    final secondRoot = findRoot(secondIndex);
+
+    if (firstRoot != secondRoot) {
+      parentIndexes[secondRoot] = firstRoot;
     }
   }
 
-  @override
-  bool shouldRepaint(covariant _ClockMarkerPainter oldDelegate) {
-    return oldDelegate.color != color;
+  for (var firstIndex = 0; firstIndex < events.length; firstIndex++) {
+    for (
+      var secondIndex = firstIndex + 1;
+      secondIndex < events.length;
+      secondIndex++
+    ) {
+      final distance =
+          (screenOffsets[firstIndex] - screenOffsets[secondIndex]).distance;
+
+      if (distance < _clockMarkerSize) {
+        join(firstIndex, secondIndex);
+      }
+    }
+  }
+
+  final groupedEvents = <int, List<Event>>{};
+  for (var index = 0; index < events.length; index++) {
+    groupedEvents.putIfAbsent(findRoot(index), () => []).add(events[index]);
+  }
+
+  return [
+    for (final clusterEvents in groupedEvents.values)
+      _EventCluster(events: clusterEvents),
+  ];
+}
+
+double _clusterAngle(int index, int count) {
+  return -math.pi / 2 + (math.pi * 2 * index / count);
+}
+
+class _EventCluster {
+  const _EventCluster({required this.events});
+
+  final List<Event> events;
+
+  LatLng get center {
+    final latitudeSum = events.fold<double>(
+      0,
+      (sum, event) => sum + event.latitude,
+    );
+    final longitudeSum = events.fold<double>(
+      0,
+      (sum, event) => sum + event.longitude,
+    );
+
+    return LatLng(latitudeSum / events.length, longitudeSum / events.length);
   }
 }

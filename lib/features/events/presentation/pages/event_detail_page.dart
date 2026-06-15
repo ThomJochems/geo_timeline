@@ -1,8 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../domain/models/event.dart';
-import '../widgets/concept_ui.dart';
 
 class EventDetailPage extends StatelessWidget {
   const EventDetailPage({super.key, this.event});
@@ -11,61 +12,199 @@ class EventDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selectedEvent = event;
+    final theme = Theme.of(context);
+
+    if (event == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Event detail')),
+        body: const Center(child: Text('No event selected.')),
+      );
+    }
+
+    final categoryColor = _categoryColor(event!.category, theme.colorScheme);
 
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            const Positioned(top: 8, left: 12, child: ConceptBackButton()),
-            Positioned(
-              top: 34,
-              left: 160,
-              right: 160,
-              child: _DetailHeader(event: selectedEvent),
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 260,
+            pinned: true,
+            backgroundColor: theme.colorScheme.surface,
+            flexibleSpace: FlexibleSpaceBar(
+              title: Text(
+                event!.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              background: _EventHeaderImage(imagePath: event!.imagePath),
+              stretchModes: const [
+                StretchMode.zoomBackground,
+                StretchMode.fadeTitle,
+              ],
             ),
-            Positioned.fill(
-              top: 160,
-              child: selectedEvent == null
-                  ? const Center(child: Text('No event selected.'))
-                  : ListView(
-                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 56),
-                      children: [
-                        Center(
-                          child: _DetailSectionCard(
-                            title: _primarySectionTitle(selectedEvent),
-                            date: selectedEvent.startDate,
-                            body: selectedEvent.description ??
-                                'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla ac rhoncus purus. Ut vestibulum ipsum dictum nulla luctus, vel aliquet erat suscipit. Sed egestas accumsan orci a rhoncus.',
-                            event: selectedEvent,
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate.fixed([
+                _CategoryChip(category: event!.category, color: categoryColor),
+                const SizedBox(height: 12),
+                _InfoSection(
+                  icon: Icons.description_outlined,
+                  title: 'Description',
+                  child:
+                      event!.description == null ||
+                          event!.description!.trim().isEmpty
+                      ? Text(
+                          'No description provided.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
                           ),
-                        ),
-                        const SizedBox(height: 32),
-                        Center(
-                          child: _DetailSectionCard(
-                            title: _secondarySectionTitle(selectedEvent),
-                            date: selectedEvent.endDate,
-                            body:
-                                'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla ac rhoncus purus. Ut vestibulum ipsum dictum nulla luctus, vel aliquet erat suscipit. Sed egestas accumsan orci a rhoncus.',
-                            event: selectedEvent,
-                          ),
-                        ),
-                      ],
-                    ),
+                        )
+                      : Text(event!.description!),
+                ),
+                const SizedBox(height: 16),
+                _InfoSection(
+                  icon: Icons.calendar_month_outlined,
+                  title: 'Dates',
+                  child: Text(
+                    _formatDateRange(event!.startDate, event!.endDate),
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _InfoSection(
+                  icon: Icons.location_on_outlined,
+                  title: 'Location',
+                  child: Text(
+                    event!.locationName ??
+                        '${event!.latitude.toStringAsFixed(3)}, ${event!.longitude.toStringAsFixed(3)}',
+                  ),
+                ),
+              ]),
             ),
-            Positioned(
-              right: 0,
-              top: 0,
-              child: Container(
-                width: 31,
-                height: 168,
-                decoration: BoxDecoration(
-                  color: ConceptColors.lightBlue,
-                  border: Border.all(color: Colors.black, width: 1.5),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EventHeaderImage extends StatelessWidget {
+  const _EventHeaderImage({required this.imagePath});
+
+  final String? imagePath;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (imagePath == null || imagePath!.trim().isEmpty) {
+      return Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              theme.colorScheme.primary.withValues(alpha: 0.35),
+              theme.colorScheme.secondary.withValues(alpha: 0.25),
+              theme.colorScheme.surface,
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: const Center(
+          child: Icon(Icons.image_outlined, size: 56, color: Colors.white70),
+        ),
+      );
+    }
+
+    // NOTE: imagePath comes from ImagePicker on the device, so this is a local file.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Image.file(
+          File(imagePath!),
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) {
+            return Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    theme.colorScheme.primary.withValues(alpha: 0.35),
+                    theme.colorScheme.secondary.withValues(alpha: 0.25),
+                    theme.colorScheme.surface,
+                  ],
                 ),
               ),
+              child: const Center(
+                child: Icon(
+                  Icons.broken_image_outlined,
+                  size: 56,
+                  color: Colors.white70,
+                ),
+              ),
+            );
+          },
+        ),
+        // Readability overlay
+        Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withValues(alpha: 0.45),
+                Colors.black.withValues(alpha: 0.10),
+                Colors.transparent,
+              ],
             ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InfoSection extends StatelessWidget {
+  const _InfoSection({
+    required this.icon,
+    required this.title,
+    required this.child,
+  });
+
+  final IconData icon;
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 20, color: theme.colorScheme.primary),
+                const SizedBox(width: 10),
+                Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            child,
           ],
         ),
       ),
@@ -73,147 +212,67 @@ class EventDetailPage extends StatelessWidget {
   }
 }
 
-class _DetailHeader extends StatelessWidget {
-  const _DetailHeader({required this.event});
+class _CategoryChip extends StatelessWidget {
+  const _CategoryChip({required this.category, required this.color});
 
-  final Event? event;
+  final EventCategory category;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final theme = Theme.of(context);
+
+    return Wrap(
+      spacing: 8,
       children: [
-        Text(
-          event?.title ?? 'Event detail',
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Colors.black,
-            fontSize: 26,
-            fontWeight: FontWeight.w400,
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: color.withValues(alpha: 0.35)),
           ),
-        ),
-        if (event != null) ...[
-          const SizedBox(height: 16),
-          Text(
-            _formatConceptRange(event!.startDate, event!.endDate),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.black,
-              fontSize: 18,
-              height: 1.28,
+          child: Text(
+            category.label,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w800,
             ),
           ),
-        ],
+        ),
       ],
     );
   }
 }
 
-class _DetailSectionCard extends StatelessWidget {
-  const _DetailSectionCard({
-    required this.title,
-    required this.date,
-    required this.body,
-    required this.event,
-  });
+Color _categoryColor(EventCategory category, ColorScheme colorScheme) {
+  return switch (category) {
+    EventCategory.earthquake => colorScheme.error,
+    EventCategory.volcano => const Color(0xFFC15A14),
+    EventCategory.gasEmission => const Color(0xFF5B6F20),
+    EventCategory.tsunami => const Color(0xFF116A9A),
+  };
+}
 
-  final String title;
-  final DateTime date;
-  final String body;
-  final Event event;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = conceptEventColor(event.category);
-
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 760, minHeight: 300),
-      padding: const EdgeInsets.fromLTRB(52, 28, 16, 28),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(58),
-        border: Border.all(color: Colors.black, width: 1.5),
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final image = Image.asset(
-            conceptEventAsset(event.category),
-            width: constraints.maxWidth < 560 ? constraints.maxWidth : 250,
-            height: 150,
-            fit: BoxFit.cover,
-          );
-          final copy = _DetailSectionCopy(title: title, date: date, body: body);
-
-          if (constraints.maxWidth < 560) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                copy,
-                const SizedBox(height: 20),
-                ClipRect(child: image),
-              ],
-            );
-          }
-
-          return Row(
-            children: [
-              Expanded(child: copy),
-              const SizedBox(width: 24),
-              image,
-            ],
-          );
-        },
-      ),
-    );
+String _formatDateRange(DateTime startDate, DateTime endDate) {
+  if (_isSameDay(startDate, endDate)) {
+    return _formatFullDate(startDate);
   }
+
+  return '${_formatFullDate(startDate)} - ${_formatFullDate(endDate)}';
 }
 
-class _DetailSectionCopy extends StatelessWidget {
-  const _DetailSectionCopy({
-    required this.title,
-    required this.date,
-    required this.body,
-  });
-
-  final String title;
-  final DateTime date;
-  final String body;
-
-  @override
-  Widget build(BuildContext context) {
-    return DefaultTextStyle(
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 18,
-        height: 1.28,
-        fontWeight: FontWeight.w400,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 25, height: 1.15),
-          ),
-          const SizedBox(height: 12),
-          Text(DateFormat('HH:mm dd/MM/yyyy').format(date)),
-          const SizedBox(height: 18),
-          Text(body, maxLines: 8, overflow: TextOverflow.ellipsis),
-        ],
-      ),
-    );
+String _formatFullDate(DateTime date) {
+  // If you ever support BCE properly, keep parity with timeline formatting.
+  if (date.year <= 0) {
+    return '${date.day}/${date.month}/${date.year.abs() + 1} BCE';
   }
+
+  return DateFormat.yMMMd().format(date);
 }
 
-String _primarySectionTitle(Event event) {
-  return event.category == EventCategory.volcano ? 'First eruption' : event.title;
-}
-
-String _secondarySectionTitle(Event event) {
-  return event.category == EventCategory.volcano ? 'Big lava stream' : 'Follow-up';
-}
-
-String _formatConceptRange(DateTime startDate, DateTime endDate) {
-  final formatter = DateFormat('HH:mm dd/MM/yyyy');
-  return '${formatter.format(startDate)}\n- ${formatter.format(endDate)}';
+bool _isSameDay(DateTime first, DateTime second) {
+  return first.year == second.year &&
+      first.month == second.month &&
+      first.day == second.day;
 }

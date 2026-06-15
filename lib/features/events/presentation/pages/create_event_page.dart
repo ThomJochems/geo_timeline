@@ -103,13 +103,13 @@ class _CreateEventPageState extends State<CreateEventPage> {
               ),
               const SizedBox(height: 16),
               _DatePickerField(
-                label: 'Start date',
+                label: 'Start date and time',
                 value: _startDate,
                 onPressed: _pickStartDate,
               ),
               const SizedBox(height: 12),
               _DatePickerField(
-                label: 'End date',
+                label: 'End date and time',
                 value: _endDate,
                 onPressed: _pickEndDate,
               ),
@@ -193,16 +193,18 @@ class _CreateEventPageState extends State<CreateEventPage> {
 
   Future<void> _pickStartDate() async {
     final initialDate = _startDate ?? DateTime.now();
-    final pickedDate = await _showEventDatePicker(initialDate: initialDate);
+    final pickedDateTime = await _showEventDateTimePicker(
+      initialDateTime: initialDate,
+    );
 
-    if (!mounted || pickedDate == null) {
+    if (!mounted || pickedDateTime == null) {
       return;
     }
 
     setState(() {
-      _startDate = pickedDate;
-      if (_endDate != null && _endDate!.isBefore(pickedDate)) {
-        _endDate = pickedDate;
+      _startDate = pickedDateTime;
+      if (_endDate != null && _endDate!.isBefore(pickedDateTime)) {
+        _endDate = pickedDateTime;
       }
       _dateError = null;
     });
@@ -210,24 +212,49 @@ class _CreateEventPageState extends State<CreateEventPage> {
 
   Future<void> _pickEndDate() async {
     final initialDate = _endDate ?? _startDate ?? DateTime.now();
-    final pickedDate = await _showEventDatePicker(initialDate: initialDate);
+    final pickedDateTime = await _showEventDateTimePicker(
+      initialDateTime: initialDate,
+    );
 
-    if (!mounted || pickedDate == null) {
+    if (!mounted || pickedDateTime == null) {
       return;
     }
 
     setState(() {
-      _endDate = pickedDate;
+      _endDate = pickedDateTime;
       _dateError = null;
     });
   }
 
-  Future<DateTime?> _showEventDatePicker({required DateTime initialDate}) {
-    return showDatePicker(
+  Future<DateTime?> _showEventDateTimePicker({
+    required DateTime initialDateTime,
+  }) async {
+    final pickedDate = await showDatePicker(
       context: context,
-      initialDate: initialDate,
+      initialDate: initialDateTime,
       firstDate: DateTime(1900),
       lastDate: DateTime(2100),
+    );
+
+    if (!mounted || pickedDate == null) {
+      return null;
+    }
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initialDateTime),
+    );
+
+    if (pickedTime == null) {
+      return null;
+    }
+
+    return DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
     );
   }
 
@@ -277,9 +304,9 @@ class _CreateEventPageState extends State<CreateEventPage> {
 
     final errorMessage = context.read<EventProvider>().errorMessage;
     if (errorMessage != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMessage)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(errorMessage)));
       return;
     }
 
@@ -313,8 +340,8 @@ class _DatePickerField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final displayValue = value == null
-        ? 'Select date'
-        : DateFormat.yMMMd().format(value!);
+        ? 'Select date and time'
+        : DateFormat('dd/MM/yyyy HH:mm').format(value!);
 
     return OutlinedButton.icon(
       onPressed: onPressed,
@@ -322,7 +349,14 @@ class _DatePickerField extends StatelessWidget {
       label: Row(
         children: [
           Expanded(child: Text(label)),
-          Text(displayValue),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              displayValue,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
+            ),
+          ),
         ],
       ),
       style: OutlinedButton.styleFrom(

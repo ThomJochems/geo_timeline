@@ -4,17 +4,11 @@ abstract final class AppTheme {
   static const _seedColor = Color(0xFF0F7B6C);
 
   static ThemeData get light => _theme(
-    ColorScheme.fromSeed(
-      seedColor: _seedColor,
-      brightness: Brightness.light,
-    ),
+    ColorScheme.fromSeed(seedColor: _seedColor, brightness: Brightness.light),
   );
 
   static ThemeData get dark => _theme(
-    ColorScheme.fromSeed(
-      seedColor: _seedColor,
-      brightness: Brightness.dark,
-    ),
+    ColorScheme.fromSeed(seedColor: _seedColor, brightness: Brightness.dark),
   );
 
   static ThemeData _theme(ColorScheme colorScheme) {
