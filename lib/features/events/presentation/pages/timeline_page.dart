@@ -8,10 +8,20 @@ import 'package:provider/provider.dart';
 
 import '../../../../app/navigation/app_routes.dart';
 import '../../../../app/navigation/navigation_args.dart';
-import '../../data/mock/mock_events.dart';
 import '../../domain/models/event.dart';
 import '../providers/event_provider.dart';
+import '../utils/event_list_utils.dart';
 import '../widgets/concept_ui.dart';
+
+abstract final class _TimelineLayout {
+  static const axisHeight = 94.0;
+  static const cardTop = 100.0;
+  static const cardHeight = 150.0;
+  static const cardGap = 16.0;
+  static const horizontalLineTop = 238.0;
+  static const tickTop = 228.0;
+  static const baseHeight = 300.0;
+}
 
 class TimelinePage extends StatefulWidget {
   const TimelinePage({super.key, this.focusEventId});
@@ -48,13 +58,8 @@ class _TimelinePageState extends State<TimelinePage> {
   @override
   Widget build(BuildContext context) {
     final savedEvents = context.watch<EventProvider>().events;
-    final events = [...MockEvents.timeline, ...savedEvents]
-      ..sort((a, b) => a.startDate.compareTo(b.startDate));
-    final visibleEvents = _categoryFilter == null
-        ? events
-        : events
-              .where((event) => event.category == _categoryFilter)
-              .toList(growable: false);
+    final events = timelineEventsWithSaved(savedEvents);
+    final visibleEvents = filterEventsByCategory(events, _categoryFilter);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -74,7 +79,9 @@ class _TimelinePageState extends State<TimelinePage> {
             );
             final canvasHeight = math.max(
               constraints.maxHeight,
-              300.0 + cardLayouts.laneCount * 166.0,
+              _TimelineLayout.baseHeight +
+                  cardLayouts.laneCount *
+                      (_TimelineLayout.cardHeight + _TimelineLayout.cardGap),
             );
             _positionInitialView(range, pixelsPerHour, constraints.maxWidth);
             final offscreenCounts = _offscreenEventCounts(
@@ -115,7 +122,7 @@ class _TimelinePageState extends State<TimelinePage> {
                                 clipBehavior: Clip.hardEdge,
                                 children: [
                                   Positioned(
-                                    top: 238,
+                                    top: _TimelineLayout.horizontalLineTop,
                                     left: 0,
                                     right: 0,
                                     child: Container(
@@ -241,9 +248,6 @@ class _TimelinePageState extends State<TimelinePage> {
     _TimelineRange range,
     double pixelsPerHour,
   ) {
-    const laneTop = 100.0;
-    const laneGap = 16.0;
-    const cardHeight = 150.0;
     final laneEnds = <double>[];
     final layouts = <_TimelineCardLayout>[];
 
@@ -269,9 +273,11 @@ class _TimelinePageState extends State<TimelinePage> {
         _TimelineCardLayout(
           event: event,
           left: left,
-          top: laneTop + lane * (cardHeight + laneGap),
+          top: _TimelineLayout.cardTop +
+              lane *
+                  (_TimelineLayout.cardHeight + _TimelineLayout.cardGap),
           width: width,
-          height: cardHeight,
+          height: _TimelineLayout.cardHeight,
         ),
       );
     }
@@ -317,12 +323,15 @@ class _TimelinePageState extends State<TimelinePage> {
       ticks.add(
         Positioned(
           left: x,
-          top: 228,
-          bottom: 94,
+          top: _TimelineLayout.tickTop,
+          bottom: _TimelineLayout.axisHeight,
           child: _TimelineTick(
             label: _formatTick(date, tickInterval),
             isMajor: date.hour == 0,
-            height: canvasHeight - 322,
+            height:
+                canvasHeight -
+                _TimelineLayout.tickTop -
+                _TimelineLayout.axisHeight,
           ),
         ),
       );
@@ -645,7 +654,7 @@ class _TimeAxis extends StatelessWidget {
 
     return SizedBox(
       width: width,
-      height: 94,
+      height: _TimelineLayout.axisHeight,
       child: Stack(
         children: [
           Positioned.fill(

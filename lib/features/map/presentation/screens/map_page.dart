@@ -6,9 +6,9 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../app/navigation/app_routes.dart';
-import '../../../events/data/mock/mock_events.dart';
 import '../../../events/domain/models/event.dart';
 import '../../../events/presentation/providers/event_provider.dart';
+import '../../../events/presentation/utils/event_list_utils.dart';
 import '../../../events/presentation/widgets/concept_ui.dart';
 
 const _clockMarkerSize = 112.0;
@@ -45,18 +45,13 @@ class _MapPageState extends State<MapPage> {
   @override
   Widget build(BuildContext context) {
     final savedEvents = context.watch<EventProvider>().events;
-    final events = [...MockEvents.timeline, ...savedEvents]
-      ..sort((a, b) => a.startDate.compareTo(b.startDate));
+    final events = timelineEventsWithSaved(savedEvents);
     final routeEvents = widget.visibleEventIds == null
         ? events
         : events
               .where((event) => widget.visibleEventIds!.contains(event.id))
               .toList(growable: false);
-    final visibleEvents = _categoryFilter == null
-        ? routeEvents
-        : routeEvents
-              .where((event) => event.category == _categoryFilter)
-              .toList(growable: false);
+    final visibleEvents = filterEventsByCategory(routeEvents, _categoryFilter);
     final clusters = _clusterEvents(visibleEvents, _camera);
     _focusRequestedEvent(events);
 
