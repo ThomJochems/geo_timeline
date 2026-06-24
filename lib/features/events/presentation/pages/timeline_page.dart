@@ -188,18 +188,6 @@ class _TimelinePageState extends State<TimelinePage> {
                   ),
                 ),
                 Positioned(
-                  right: 0,
-                  top: 0,
-                  child: Container(
-                    width: 31,
-                    height: 168,
-                    decoration: BoxDecoration(
-                      color: ConceptColors.lightBlue,
-                      border: Border.all(color: Colors.black, width: 1.5),
-                    ),
-                  ),
-                ),
-                Positioned(
                   left: 0,
                   right: 0,
                   bottom: 0,
@@ -688,18 +676,6 @@ class _TimeAxis extends StatelessWidget {
             child: Container(
               height: 42,
               color: ConceptColors.blue,
-            ),
-          ),
-          Positioned(
-            left: 0,
-            bottom: 0,
-            child: Container(
-              width: 168,
-              height: 36,
-              decoration: BoxDecoration(
-                color: ConceptColors.lightBlue,
-                border: Border.all(color: Colors.black, width: 1.5),
-              ),
             ),
           ),
         ],

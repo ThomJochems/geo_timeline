@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Geo Timeline uses the camera to attach photos to events.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Geo Timeline uses your photo library to attach selected pictures to events.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

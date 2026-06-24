@@ -25,7 +25,7 @@ enum EventCategory {
 
 @immutable
 class Event {
-  const Event({
+  Event({
     required this.id,
     required this.title,
     required this.category,
@@ -37,8 +37,9 @@ class Event {
     required this.updatedAt,
     this.description,
     this.locationName,
-    this.imagePath,
-  });
+    String? imagePath,
+    List<String> imagePaths = const [],
+  }) : imagePaths = _normalizeImagePaths(imagePaths, imagePath);
 
   final String id;
   final String title;
@@ -49,11 +50,12 @@ class Event {
   final double latitude;
   final double longitude;
   final String? locationName;
-  final String? imagePath;
+  final List<String> imagePaths;
   final DateTime createdAt;
   final DateTime updatedAt;
 
   DateTime get occurredAt => startDate;
+  String? get imagePath => imagePaths.isEmpty ? null : imagePaths.first;
 
   Event copyWith({
     String? id,
@@ -66,11 +68,12 @@ class Event {
     double? longitude,
     String? locationName,
     String? imagePath,
+    List<String>? imagePaths,
     DateTime? createdAt,
     DateTime? updatedAt,
     bool clearDescription = false,
     bool clearLocationName = false,
-    bool clearImagePath = false,
+    bool clearImagePaths = false,
   }) {
     return Event(
       id: id ?? this.id,
@@ -84,7 +87,9 @@ class Event {
       locationName: clearLocationName
           ? null
           : locationName ?? this.locationName,
-      imagePath: clearImagePath ? null : imagePath ?? this.imagePath,
+      imagePaths: clearImagePaths
+          ? const []
+          : imagePaths ?? (imagePath == null ? this.imagePaths : [imagePath]),
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -102,6 +107,7 @@ class Event {
       'longitude': longitude,
       'locationName': locationName,
       'imagePath': imagePath,
+      'imagePaths': imagePaths,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -112,6 +118,14 @@ class Event {
     final endDateValue = json['endDate'] as String?;
     final legacyOccurredAtValue = json['occurredAt'] as String?;
     final fallbackDateValue = DateTime.now().toIso8601String();
+    final imagePathsValue = json['imagePaths'];
+    final legacyImagePath = json['imagePath'] as String?;
+    final imagePaths = _normalizeImagePaths(
+      imagePathsValue is List
+          ? imagePathsValue.whereType<String>()
+          : const <String>[],
+      legacyImagePath,
+    );
 
     return Event(
       id: json['id'] as String,
@@ -130,7 +144,7 @@ class Event {
       latitude: (json['latitude'] as num).toDouble(),
       longitude: (json['longitude'] as num).toDouble(),
       locationName: json['locationName'] as String?,
-      imagePath: json['imagePath'] as String?,
+      imagePaths: imagePaths,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
     );
@@ -150,7 +164,7 @@ class Event {
             latitude == other.latitude &&
             longitude == other.longitude &&
             locationName == other.locationName &&
-            imagePath == other.imagePath &&
+            listEquals(imagePaths, other.imagePaths) &&
             createdAt == other.createdAt &&
             updatedAt == other.updatedAt;
   }
@@ -166,8 +180,29 @@ class Event {
     latitude,
     longitude,
     locationName,
-    imagePath,
+    Object.hashAll(imagePaths),
     createdAt,
     updatedAt,
   );
+
+  static List<String> _normalizeImagePaths(
+    Iterable<String> imagePaths,
+    String? legacyImagePath,
+  ) {
+    final normalizedPaths = imagePaths
+        .map((path) => path.trim())
+        .where((path) => path.isNotEmpty)
+        .toList(growable: false);
+
+    if (normalizedPaths.isNotEmpty) {
+      return List.unmodifiable(normalizedPaths);
+    }
+
+    final normalizedLegacyPath = legacyImagePath?.trim();
+    if (normalizedLegacyPath == null || normalizedLegacyPath.isEmpty) {
+      return const [];
+    }
+
+    return List.unmodifiable([normalizedLegacyPath]);
+  }
 }

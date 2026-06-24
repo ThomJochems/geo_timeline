@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../domain/models/event.dart';
 import '../providers/event_provider.dart';
 import '../widgets/concept_ui.dart';
+import 'windows_camera_capture_page.dart';
 
 class CreateEventPage extends StatefulWidget {
   const CreateEventPage({super.key});
@@ -25,7 +27,7 @@ class _CreateEventPageState extends State<CreateEventPage> {
   EventCategory _category = EventCategory.earthquake;
   DateTime? _startDate;
   DateTime? _endDate;
-  XFile? _selectedImage;
+  final List<XFile> _selectedImages = [];
   String? _dateError;
   bool _isSaving = false;
 
@@ -40,6 +42,10 @@ class _CreateEventPageState extends State<CreateEventPage> {
 
   @override
   Widget build(BuildContext context) {
+    final canTakePhoto =
+        _usesWindowsDesktopCamera ||
+        _imagePicker.supportsImageSource(ImageSource.camera);
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -166,11 +172,16 @@ class _CreateEventPageState extends State<CreateEventPage> {
               ),
               const SizedBox(height: 16),
               _ImageSelectionField(
-                imageName: _selectedImage?.name,
-                onPressed: _pickImage,
-                onClear: _selectedImage == null
+                images: _selectedImages,
+                canTakePhoto: canTakePhoto,
+                onPickFromGallery: _pickImagesFromGallery,
+                onTakePhoto: _takePhoto,
+                onRemove: (image) {
+                  setState(() => _selectedImages.remove(image));
+                },
+                onClear: _selectedImages.isEmpty
                     ? null
-                    : () => setState(() => _selectedImage = null),
+                    : () => setState(_selectedImages.clear),
               ),
             ],
           ),
@@ -258,14 +269,72 @@ class _CreateEventPageState extends State<CreateEventPage> {
     );
   }
 
-  Future<void> _pickImage() async {
-    final image = await _imagePicker.pickImage(source: ImageSource.gallery);
+  Future<void> _pickImagesFromGallery() async {
+    final List<XFile> images;
 
-    if (!mounted || image == null) {
+    try {
+      images = await _imagePicker.pickMultiImage();
+    } catch (error) {
+      _showImagePickerError(error);
       return;
     }
 
-    setState(() => _selectedImage = image);
+    if (!mounted || images.isEmpty) {
+      return;
+    }
+
+    setState(() => _selectedImages.addAll(images));
+  }
+
+  Future<void> _takePhoto() async {
+    if (_usesWindowsDesktopCamera) {
+      final image = await Navigator.of(context).push<XFile>(
+        MaterialPageRoute(
+          builder: (_) => const WindowsCameraCapturePage(),
+        ),
+      );
+
+      if (!mounted || image == null) {
+        return;
+      }
+
+      setState(() => _selectedImages.add(image));
+      return;
+    }
+
+    final XFile? image;
+
+    try {
+      image = await _imagePicker.pickImage(source: ImageSource.camera);
+    } catch (error) {
+      _showImagePickerError(error);
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    if (image == null) {
+      return;
+    }
+
+    final selectedImage = image;
+    setState(() => _selectedImages.add(selectedImage));
+  }
+
+  bool get _usesWindowsDesktopCamera {
+    return !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+  }
+
+  void _showImagePickerError(Object error) {
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Could not open images: $error')),
+    );
   }
 
   Future<void> _saveEvent() async {
@@ -289,7 +358,9 @@ class _CreateEventPageState extends State<CreateEventPage> {
       endDate: _endDate!,
       latitude: double.parse(_latitudeController.text.trim()),
       longitude: double.parse(_longitudeController.text.trim()),
-      imagePath: _selectedImage?.path,
+      imagePaths: _selectedImages
+          .map((image) => image.path)
+          .toList(growable: false),
       createdAt: now,
       updatedAt: now,
     );
@@ -369,40 +440,75 @@ class _DatePickerField extends StatelessWidget {
 
 class _ImageSelectionField extends StatelessWidget {
   const _ImageSelectionField({
-    required this.imageName,
-    required this.onPressed,
+    required this.images,
+    required this.canTakePhoto,
+    required this.onPickFromGallery,
+    required this.onTakePhoto,
+    required this.onRemove,
     required this.onClear,
   });
 
-  final String? imageName;
-  final VoidCallback onPressed;
+  final List<XFile> images;
+  final bool canTakePhoto;
+  final VoidCallback onPickFromGallery;
+  final VoidCallback onTakePhoto;
+  final ValueChanged<XFile> onRemove;
   final VoidCallback? onClear;
 
   @override
   Widget build(BuildContext context) {
     return InputDecorator(
       decoration: const InputDecoration(
-        labelText: 'Image',
+        labelText: 'Images',
         prefixIcon: Icon(Icons.image_outlined),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Text(
-              imageName ?? 'No image selected',
-              overflow: TextOverflow.ellipsis,
+          if (images.isEmpty)
+            Text(
+              'No images selected',
+              style: Theme.of(context).textTheme.bodyMedium,
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final image in images)
+                  InputChip(
+                    label: Text(
+                      image.name,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    avatar: const Icon(Icons.image_outlined, size: 18),
+                    onDeleted: () => onRemove(image),
+                  ),
+              ],
             ),
-          ),
-          if (onClear != null)
-            IconButton(
-              tooltip: 'Remove image',
-              onPressed: onClear,
-              icon: const Icon(Icons.close),
-            ),
-          TextButton.icon(
-            onPressed: onPressed,
-            icon: const Icon(Icons.upload_file),
-            label: const Text('Select'),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              TextButton.icon(
+                onPressed: onPickFromGallery,
+                icon: const Icon(Icons.photo_library_outlined),
+                label: const Text('Add from gallery'),
+              ),
+              if (canTakePhoto)
+                TextButton.icon(
+                  onPressed: onTakePhoto,
+                  icon: const Icon(Icons.photo_camera_outlined),
+                  label: const Text('Take photo'),
+                ),
+              if (onClear != null)
+                TextButton.icon(
+                  onPressed: onClear,
+                  icon: const Icon(Icons.clear),
+                  label: const Text('Clear all'),
+                ),
+            ],
           ),
         ],
       ),

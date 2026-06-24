@@ -49,6 +49,10 @@ class EventDetailPage extends StatelessWidget {
             sliver: SliverList(
               delegate: SliverChildListDelegate.fixed([
                 _CategoryChip(category: event!.category, color: categoryColor),
+                if (event!.imagePaths.length > 1) ...[
+                  const SizedBox(height: 12),
+                  _EventImageGallery(imagePaths: event!.imagePaths),
+                ],
                 const SizedBox(height: 12),
                 _InfoSection(
                   icon: Icons.description_outlined,
@@ -88,6 +92,42 @@ class EventDetailPage extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _EventImageGallery extends StatelessWidget {
+  const _EventImageGallery({required this.imagePaths});
+
+  final List<String> imagePaths;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 116,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: imagePaths.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Image.file(
+              File(imagePaths[index]),
+              width: 150,
+              height: 116,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => Container(
+                width: 150,
+                height: 116,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                alignment: Alignment.center,
+                child: const Icon(Icons.broken_image_outlined),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
