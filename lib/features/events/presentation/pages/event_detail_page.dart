@@ -161,7 +161,6 @@ class _EventHeaderImage extends StatelessWidget {
       );
     }
 
-    // NOTE: imagePath comes from ImagePicker on the device, so this is a local file.
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -189,7 +188,6 @@ class _EventHeaderImage extends StatelessWidget {
             );
           },
         ),
-        // Readability overlay
         Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -306,7 +304,6 @@ String _formatDateRange(DateTime startDate, DateTime endDate) {
 }
 
 String _formatFullDate(DateTime date) {
-  // If you ever support BCE properly, keep parity with timeline formatting.
   if (date.year <= 0) {
     return '${date.day}/${date.month}/${date.year.abs() + 1} BCE';
   }
